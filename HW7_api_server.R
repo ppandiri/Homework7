@@ -1,32 +1,40 @@
-## HW7_api_server.R
-
-library(plumber)
+library(plumber2)
 library(tidyverse)
+library(lubridate)
+library(readr)
 
-train <- read.csv("train_dataset.csv.gz")
-
-train <- train %>%
-  mutate(days_wait = as.numeric(difftime(appt_time, appt_made, units = "days")))
+train <- read.csv("train_dataset.csv.gz") |>
+  mutate(
+    appt_time = as_datetime(appt_time),
+    appt_made = as_datetime(appt_made),
+    days_wait = as.numeric(difftime(appt_time, appt_made, units = "days"))
+  )
 
 model <- glm(
   no_show ~ days_wait + address + specialty + provider_id + age,
-  data = train,
-  family = binomial(link = "logit")
+  data   = train,
+  family = "binomial"
 )
 
-#* @serializer contentType list(type="application/octet-stream")
 #* @post /predict_prob
-function(req){
-  df <- unserialize(req$body)
-  probs <- predict(model, newdata = df, type = "response")
-  serialize(as.numeric(probs), NULL)
+#* @parser rds
+#* @serializer rds
+predict_prob <- function(body) {
+  df <- as.data.frame(body)
+  df$days_wait <- as.numeric(df$days_wait)
+  df$age       <- as.numeric(df$age)
+  preds <- predict(model, newdata = df, type = "response")
+  as.numeric(preds)
 }
 
-#* @serializer contentType list(type="application/octet-stream")
+
 #* @post /predict_class
-function(req){
-  df <- unserialize(req$body)
-  p <- predict(model, newdata = df, type = "response")
-  classes <- as.integer(ifelse(p > 0.5, 1L, 0L))
-  serialize(classes, NULL)
+#* @parser rds
+#* @serializer rds
+function(body) {
+  df <- as.data.frame(body)
+  df$days_wait <- as.numeric(df$days_wait)
+  df$age       <- as.numeric(df$age)
+  probs <- predict(model, newdata=df, type="response")
+  as.integer(probs > 0.5)
 }
